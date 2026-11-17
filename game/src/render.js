@@ -1,407 +1,317 @@
-// Everything the player sees, painted on one canvas: the starfield, the worlds,
-// the warp gate, the comet and its trail, the aim preview, the HUD and every
-// menu screen. No images anywhere — the art is drawn from the palette.
+// The play-field renderer: everything on the field during a route — wind
+// zones, wormholes, planets and voids, mines, shards, pickups, the gate, the
+// pad, the comet with its trail, and the dotted aim preview. Screens and the
+// HUD live in their own files; this one paints the world.
 import { FIELD, PALETTE } from './config.js';
-import { createRandom, range } from './random.js';
-import { planetPosition } from './physics.js';
+import { drawBackdrop } from './backdrop.js';
+import { gateOpenAt, minePosition, planetPosition } from './physics.js';
 
 export const SCREEN_TITLE = 'title';
+export const SCREEN_MAP = 'map';
 export const SCREEN_PLAY = 'play';
 export const SCREEN_PAUSED = 'paused';
 export const SCREEN_CLEAR = 'clear';
+export const SCREEN_FAILED = 'failed';
 export const SCREEN_OVER = 'over';
 export const SCREEN_VICTORY = 'victory';
 
-const FONT_TITLE = '700 84px "Trebuchet MS", Verdana, sans-serif';
-const FONT_HEADING = '700 52px "Trebuchet MS", Verdana, sans-serif';
-const FONT_SUB = '400 24px "Trebuchet MS", Verdana, sans-serif';
-const FONT_HUD = '700 22px "Trebuchet MS", Verdana, sans-serif';
-const FONT_BODY = '400 20px "Trebuchet MS", Verdana, sans-serif';
-
-function starShape(ctx, x, y, radius, rotation) {
-  ctx.beginPath();
-  for (let point = 0; point < 8; point += 1) {
-    const angle = rotation + (point * Math.PI) / 4;
-    const r = point % 2 === 0 ? radius : radius * 0.38;
-    const px = x + Math.cos(angle) * r;
-    const py = y + Math.sin(angle) * r;
-    if (point === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-}
-
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
-  const random = createRandom(20261115);
-  const stars = [];
-  for (let index = 0; index < 170; index += 1) {
-    stars.push({
-      x: random() * FIELD.width,
-      y: random() * FIELD.height,
-      r: range(random, 0.6, 2.1),
-      twinkle: range(random, 0.5, 2.2),
-      phase: range(random, 0, Math.PI * 2),
-    });
-  }
-  const nebulae = [];
-  for (let index = 0; index < 4; index += 1) {
-    nebulae.push({
-      x: random() * FIELD.width,
-      y: random() * FIELD.height,
-      r: range(random, 180, 320),
-      hue: [220, 280, 190, 320][index],
-      alpha: range(random, 0.05, 0.09),
-    });
-  }
-
-  function drawBackground(time) {
-    const gradient = ctx.createLinearGradient(0, 0, 0, FIELD.height);
-    gradient.addColorStop(0, PALETTE.spaceTop);
-    gradient.addColorStop(1, PALETTE.spaceBottom);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, FIELD.width, FIELD.height);
-    for (const nebula of nebulae) {
-      const glow = ctx.createRadialGradient(nebula.x, nebula.y, 0, nebula.x, nebula.y, nebula.r);
-      glow.addColorStop(0, `hsla(${nebula.hue}, 70%, 60%, ${nebula.alpha})`);
-      glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(nebula.x - nebula.r, nebula.y - nebula.r, nebula.r * 2, nebula.r * 2);
-    }
-    for (const star of stars) {
-      const alpha = 0.45 + 0.55 * Math.abs(Math.sin(time * star.twinkle + star.phase));
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = PALETTE.star;
-      ctx.beginPath();
-      ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-  }
 
   function drawPlanet(planet, time) {
     const position = planetPosition(planet, time);
-    const glow = ctx.createRadialGradient(position.x, position.y, planet.r * 0.4, position.x, position.y, planet.r * 2.1);
-    glow.addColorStop(0, `hsla(${planet.hue}, 80%, 60%, 0.28)`);
-    glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(position.x - planet.r * 2.1, position.y - planet.r * 2.1, planet.r * 4.2, planet.r * 4.2);
-    if (planet.ring) {
-      ctx.save();
-      ctx.translate(position.x, position.y);
-      ctx.rotate(-0.45);
-      ctx.strokeStyle = 'rgba(220, 230, 255, 0.55)';
-      ctx.lineWidth = 7;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, planet.r * 1.75, planet.r * 0.42, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-    const body = ctx.createRadialGradient(
-      position.x - planet.r * 0.35, position.y - planet.r * 0.4, planet.r * 0.15,
+    const gradient = ctx.createRadialGradient(
+      position.x - planet.r * 0.35, position.y - planet.r * 0.35, planet.r * 0.1,
       position.x, position.y, planet.r,
     );
-    body.addColorStop(0, `hsl(${planet.hue}, 75%, 68%)`);
-    body.addColorStop(0.55, `hsl(${planet.hue}, 65%, 45%)`);
-    body.addColorStop(1, `hsl(${planet.hue}, 70%, 26%)`);
-    ctx.fillStyle = body;
+    gradient.addColorStop(0, `hsl(${planet.hue}, 65%, 62%)`);
+    gradient.addColorStop(0.6, `hsl(${planet.hue}, 55%, 38%)`);
+    gradient.addColorStop(1, `hsl(${planet.hue}, 60%, 20%)`);
+    ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(position.x, position.y, planet.r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    // A darker band and a crater or two, so no two worlds look alike.
-    ctx.fillStyle = `hsla(${planet.hue}, 60%, 30%, 0.5)`;
+    // A darker cap on the night side, so the world reads as a sphere.
+    ctx.fillStyle = 'rgba(0, 0, 10, 0.25)';
     ctx.beginPath();
-    ctx.ellipse(position.x, position.y + planet.r * 0.35, planet.r * 0.8, planet.r * 0.22, 0.1, 0, Math.PI * 2);
+    ctx.arc(position.x + planet.r * 0.3, position.y + planet.r * 0.3, planet.r * 0.8, 0, Math.PI * 2);
     ctx.fill();
+    if (planet.ring) {
+      ctx.strokeStyle = `hsla(${planet.hue}, 70%, 75%, 0.8)`;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.ellipse(position.x, position.y, planet.r * 1.6, planet.r * 0.45, -0.4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 
   function drawVoid(voidBody, time) {
-    const pulse = 1 + 0.08 * Math.sin(time * 2.4);
-    const glow = ctx.createRadialGradient(voidBody.x, voidBody.y, 0, voidBody.x, voidBody.y, voidBody.r * 4);
-    glow.addColorStop(0, 'rgba(190, 140, 255, 0.5)');
-    glow.addColorStop(0.5, 'rgba(120, 60, 200, 0.18)');
+    const glow = ctx.createRadialGradient(voidBody.x, voidBody.y, 0, voidBody.x, voidBody.y, voidBody.r * 2.4);
+    glow.addColorStop(0, 'rgba(180, 120, 255, 0.55)');
+    glow.addColorStop(0.5, 'rgba(120, 60, 220, 0.18)');
     glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = glow;
-    ctx.fillRect(voidBody.x - voidBody.r * 4, voidBody.y - voidBody.r * 4, voidBody.r * 8, voidBody.r * 8);
-    ctx.save();
-    ctx.translate(voidBody.x, voidBody.y);
-    ctx.rotate(time * 0.9);
-    ctx.strokeStyle = 'rgba(220, 180, 255, 0.85)';
-    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.ellipse(0, 0, voidBody.r * 1.9 * pulse, voidBody.r * 0.55 * pulse, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = '#000000';
+    ctx.arc(voidBody.x, voidBody.y, voidBody.r * 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#050208';
     ctx.beginPath();
     ctx.arc(voidBody.x, voidBody.y, voidBody.r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(200, 160, 255, 0.9)';
+    ctx.strokeStyle = '#c792ff';
     ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(voidBody.x, voidBody.y, voidBody.r * 1.7, voidBody.r * 0.6, time * 0.4, 0, Math.PI * 2);
     ctx.stroke();
   }
 
-  function drawGate(gate, time) {
-    const pulse = 1 + 0.06 * Math.sin(time * 3);
-    const glow = ctx.createRadialGradient(gate.x, gate.y, 0, gate.x, gate.y, gate.r * 2.4);
-    glow.addColorStop(0, PALETTE.gateGlow);
-    glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(gate.x - gate.r * 2.4, gate.y - gate.r * 2.4, gate.r * 4.8, gate.r * 4.8);
-    ctx.save();
-    ctx.translate(gate.x, gate.y);
-    ctx.rotate(time * 0.7);
-    ctx.strokeStyle = PALETTE.gate;
-    ctx.lineWidth = 5;
-    ctx.setLineDash([18, 12]);
+  function drawWormhole(hole, time) {
+    for (const mouth of [hole.a, hole.b]) {
+      const pulse = 1 + 0.08 * Math.sin(time * 3);
+      const glow = ctx.createRadialGradient(mouth.x, mouth.y, 0, mouth.x, mouth.y, hole.r * 1.8);
+      glow.addColorStop(0, 'rgba(199, 146, 255, 0.7)');
+      glow.addColorStop(0.5, 'rgba(150, 90, 255, 0.25)');
+      glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(mouth.x, mouth.y, hole.r * 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = PALETTE.wormhole;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(mouth.x, mouth.y, hole.r * pulse, time * 1.5, time * 1.5 + Math.PI * 1.5);
+      ctx.stroke();
+      ctx.fillStyle = '#1a0b2e';
+      ctx.beginPath();
+      ctx.arc(mouth.x, mouth.y, hole.r * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawWind(wind, time) {
+    ctx.fillStyle = PALETTE.wind;
+    ctx.fillRect(wind.x, wind.y, wind.w, wind.h);
+    ctx.strokeStyle = 'rgba(140, 220, 255, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(wind.x, wind.y, wind.w, wind.h);
+    // Flowing chevrons show the push direction.
+    const speed = Math.hypot(wind.ax, wind.ay) || 1;
+    const ux = wind.ax / speed;
+    const uy = wind.ay / speed;
+    ctx.strokeStyle = 'rgba(174, 243, 255, 0.6)';
+    ctx.lineWidth = 2;
+    for (let row = 0; row < 2; row += 1) {
+      for (let col = 0; col < 3; col += 1) {
+        const baseX = wind.x + wind.w * (0.2 + col * 0.3);
+        const baseY = wind.y + wind.h * (0.3 + row * 0.4);
+        const slide = ((time * 60 + col * 40 + row * 70) % 60) - 30;
+        const x = baseX + ux * slide;
+        const y = baseY + uy * slide;
+        ctx.beginPath();
+        ctx.moveTo(x - ux * 10 - uy * 6, y - uy * 10 + ux * 6);
+        ctx.lineTo(x, y);
+        ctx.lineTo(x - ux * 10 + uy * 6, y - uy * 10 - ux * 6);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function drawMine(mine, time) {
+    const position = minePosition(mine, time);
+    const blink = 0.6 + 0.4 * Math.sin(time * 5);
+    ctx.fillStyle = `rgba(255, 159, 67, ${0.25 * blink})`;
     ctx.beginPath();
-    ctx.arc(0, 0, gate.r * pulse, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-    ctx.fillStyle = 'rgba(125, 255, 178, 0.16)';
-    ctx.beginPath();
-    ctx.arc(gate.x, gate.y, gate.r * 0.8 * pulse, 0, Math.PI * 2);
+    ctx.arc(position.x, position.y, mine.r * 2, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = PALETTE.gate;
-    ctx.font = FONT_HUD;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('GATE', gate.x, gate.y);
+    ctx.fillStyle = '#2b1a08';
+    ctx.beginPath();
+    ctx.arc(position.x, position.y, mine.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = PALETTE.mine;
+    ctx.lineWidth = 2;
+    for (let spike = 0; spike < 8; spike += 1) {
+      const angle = (spike / 8) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(position.x + Math.cos(angle) * mine.r * 0.7, position.y + Math.sin(angle) * mine.r * 0.7);
+      ctx.lineTo(position.x + Math.cos(angle) * mine.r * 1.25, position.y + Math.sin(angle) * mine.r * 1.25);
+      ctx.stroke();
+    }
+    ctx.fillStyle = `rgba(255, 80, 80, ${blink})`;
+    ctx.beginPath();
+    ctx.arc(position.x, position.y, 4, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   function drawShard(shard, time) {
-    if (shard.taken) return;
-    const pulse = 1 + 0.15 * Math.sin(time * 4 + shard.x);
-    const glow = ctx.createRadialGradient(shard.x, shard.y, 0, shard.x, shard.y, 34);
+    const bob = Math.sin(time * 2 + shard.x * 0.01) * 3;
+    const glow = ctx.createRadialGradient(shard.x, shard.y + bob, 0, shard.x, shard.y + bob, 26);
     glow.addColorStop(0, PALETTE.shardGlow);
     glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = glow;
-    ctx.fillRect(shard.x - 34, shard.y - 34, 68, 68);
+    ctx.beginPath();
+    ctx.arc(shard.x, shard.y + bob, 26, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = PALETTE.shard;
-    starShape(ctx, shard.x, shard.y, 15 * pulse, time * 0.8);
-    ctx.fill();
-    ctx.fillStyle = '#fff7dd';
-    starShape(ctx, shard.x, shard.y, 6 * pulse, time * 0.8);
-    ctx.fill();
+    ctx.save();
+    ctx.translate(shard.x, shard.y + bob);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-6, -6, 12, 12);
+    ctx.restore();
+    ctx.fillStyle = '#fff6d8';
+    ctx.save();
+    ctx.translate(shard.x, shard.y + bob);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-2.5, -2.5, 5, 5);
+    ctx.restore();
   }
 
-  function drawPad(pad, time) {
-    const bob = Math.sin(time * 2) * 2;
-    ctx.strokeStyle = PALETTE.pad;
-    ctx.lineWidth = 3;
+  function drawPickup(pickup, time) {
+    const bob = Math.sin(time * 2.4 + pickup.x * 0.02) * 4;
+    const color = pickup.kind === 'shield' ? PALETTE.pickupShield : PALETTE.pickupComet;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.arc(pad.x, pad.y + bob, 30, 0, Math.PI * 2);
+    ctx.arc(pickup.x, pickup.y + bob, 15, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(142, 203, 255, 0.2)';
-    ctx.beginPath();
-    ctx.arc(pad.x, pad.y + bob, 30, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = PALETTE.pad;
-    ctx.font = '700 15px "Trebuchet MS", Verdana, sans-serif';
+    ctx.fillStyle = color;
+    ctx.font = 'bold 16px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('LAUNCH', pad.x, pad.y + bob + 46);
+    ctx.fillText(pickup.kind === 'shield' ? 'S' : '+1', pickup.x, pickup.y + bob + 1);
   }
 
-  function drawComet(flight, trail) {
-    if (trail.length > 1) {
-      ctx.strokeStyle = PALETTE.trail;
-      ctx.lineWidth = 3;
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(trail[0].x, trail[0].y);
-      for (let index = 1; index < trail.length; index += 1) ctx.lineTo(trail[index].x, trail[index].y);
-      ctx.stroke();
-    }
-    const glow = ctx.createRadialGradient(flight.x, flight.y, 0, flight.x, flight.y, 26);
-    glow.addColorStop(0, 'rgba(174, 243, 255, 0.9)');
+  function drawGate(gate, time) {
+    const open = gateOpenAt(gate, time);
+    const color = open ? PALETTE.gate : PALETTE.gateClosed;
+    const glowColor = open ? PALETTE.gateGlow : 'rgba(255, 138, 122, 0.4)';
+    const pulse = open ? 1 + 0.06 * Math.sin(time * 4) : 1;
+    const glow = ctx.createRadialGradient(gate.x, gate.y, 0, gate.x, gate.y, gate.r * 2);
+    glow.addColorStop(0, glowColor);
     glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = glow;
-    ctx.fillRect(flight.x - 26, flight.y - 26, 52, 52);
+    ctx.beginPath();
+    ctx.arc(gate.x, gate.y, gate.r * 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(gate.x, gate.y, gate.r * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(gate.x, gate.y, gate.r * 0.6, time * 1.2, time * 1.2 + Math.PI * 1.4);
+    ctx.stroke();
+    if (gate.flare) {
+      // The flare ring shows how long the gate stays open or shut.
+      const phase = (time + gate.flare.phase) % gate.flare.period;
+      const fraction = open ? phase / gate.flare.open : (phase - gate.flare.open) / (gate.flare.period - gate.flare.open);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(gate.x, gate.y, gate.r + 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - fraction));
+      ctx.stroke();
+    }
+  }
+
+  function drawPad(level, time) {
+    const pad = level.pad;
+    ctx.strokeStyle = PALETTE.pad;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(pad.x, pad.y, 22 + 3 * Math.sin(time * 2), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(142, 203, 255, 0.15)';
+    ctx.beginPath();
+    ctx.arc(pad.x, pad.y, 22, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawComet(x, y, shield, time) {
+    const glow = ctx.createRadialGradient(x, y, 0, x, y, 26);
+    glow.addColorStop(0, 'rgba(174, 243, 255, 0.8)');
+    glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, 26, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = PALETTE.cometCore;
     ctx.beginPath();
-    ctx.arc(flight.x, flight.y, 7, 0, Math.PI * 2);
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = PALETTE.comet;
     ctx.beginPath();
-    ctx.arc(flight.x, flight.y, 11, 0, Math.PI * 2);
+    ctx.arc(x, y, 11, 0, Math.PI * 2);
     ctx.globalAlpha = 0.5;
     ctx.fill();
     ctx.globalAlpha = 1;
-  }
-
-  function drawAim(aim) {
-    if (!aim.active || aim.points.length < 2) return;
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([2, 12]);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(aim.points[0].x, aim.points[0].y);
-    for (let index = 1; index < aim.points.length; index += 1) ctx.lineTo(aim.points[index].x, aim.points[index].y);
-    ctx.stroke();
-    ctx.restore();
-    const end = aim.points[aim.points.length - 1];
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(end.x, end.y, 5, 0, Math.PI * 2);
-    ctx.fill();
-    // Power meter beside the pad.
-    const pad = aim.pad;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-    ctx.fillRect(pad.x - 60, pad.y + 64, 120, 10);
-    ctx.fillStyle = aim.power > 0.85 ? PALETTE.danger : PALETTE.comet;
-    ctx.fillRect(pad.x - 60, pad.y + 64, 120 * aim.power, 10);
-  }
-
-  function drawHud(state) {
-    ctx.fillStyle = 'rgba(5, 8, 22, 0.55)';
-    ctx.fillRect(0, 0, FIELD.width, 52);
-    ctx.fillStyle = PALETTE.hud;
-    ctx.font = FONT_HUD;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`LEVEL ${state.levelIndex + 1}/8 · ${state.level.name.toUpperCase()}`, 20, 27);
-    ctx.textAlign = 'center';
-    let comets = 'COMETS ';
-    for (let index = 0; index < state.cometsLeft; index += 1) comets += '● ';
-    for (let index = state.cometsLeft; index < 3; index += 1) comets += '○ ';
-    ctx.fillText(comets, FIELD.width / 2 - 40, 27);
-    ctx.fillStyle = PALETTE.shard;
-    ctx.fillText(`◆ ${state.shardsGot}/${state.level.shards.length}`, FIELD.width / 2 + 170, 27);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = PALETTE.hud;
-    ctx.fillText(`SCORE ${state.score}   BEST ${state.best}`, FIELD.width - 20, 27);
-    if (state.hint && state.screen === SCREEN_PLAY) {
-      ctx.textAlign = 'center';
-      ctx.fillStyle = PALETTE.hudDim;
-      ctx.font = FONT_BODY;
-      ctx.fillText(state.hint, FIELD.width / 2, FIELD.height - 24);
+    if (shield) {
+      ctx.strokeStyle = PALETTE.pickupShield;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      ctx.arc(x, y, 20 + 2 * Math.sin(time * 5), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
   }
 
-  function drawPanel(x, y, width, height) {
-    ctx.fillStyle = PALETTE.panel;
-    ctx.strokeStyle = PALETTE.panelEdge;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(x, y, width, height, 18);
-    ctx.fill();
-    ctx.stroke();
-  }
-
-  function drawCentred(text, y, font, colour) {
-    ctx.font = font;
-    ctx.fillStyle = colour;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, FIELD.width / 2, y);
-  }
-
-  function drawTitle(state) {
-    drawCentred('COMET COURIER', 210, FONT_TITLE, '#ffffff');
-    drawCentred('Slingshot your comet around the worlds. Gather the shards. Reach the gate.', 285, FONT_SUB, PALETTE.hud);
-    drawCentred('Every launch counts — you carry only three comets per route.', 322, FONT_SUB, PALETTE.hudDim);
-    drawPanel(FIELD.width / 2 - 330, 380, 660, 190);
-    drawCentred('HOW TO PLAY', 415, FONT_HUD, PALETTE.comet);
-    drawCentred('Drag from the comet to aim — release to launch', 455, FONT_BODY, PALETTE.hud);
-    drawCentred('Gravity bends your flight · shards are worth 100 · the gate ends the route', 490, FONT_BODY, PALETTE.hud);
-    drawCentred('R restart route · P pause · M sound', 528, FONT_BODY, PALETTE.hudDim);
-    const blink = 0.55 + 0.45 * Math.sin(state.time * 3);
-    ctx.globalAlpha = blink;
-    drawCentred('CLICK OR PRESS ENTER TO START', 640, FONT_HUD, PALETTE.shard);
-    ctx.globalAlpha = 1;
-    if (state.best > 0) drawCentred(`BEST SCORE  ${state.best}`, 690, FONT_BODY, PALETTE.hudDim);
-  }
-
-  function drawStars(count, y) {
-    ctx.font = '44px "Trebuchet MS", Verdana, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    for (let index = 0; index < 3; index += 1) {
-      ctx.fillStyle = index < count ? PALETTE.shard : 'rgba(255, 255, 255, 0.22)';
-      ctx.fillText('★', FIELD.width / 2 + (index - 1) * 64, y);
-    }
-  }
-
-  function drawClear(state) {
-    drawPanel(FIELD.width / 2 - 340, 190, 680, 380);
-    drawCentred('ROUTE CLEAR!', 260, FONT_HEADING, PALETTE.gate);
-    drawStars(state.clearStars, 330);
-    drawCentred(`Shards  ${state.shardsGot}/${state.level.shards.length}  ·  +${state.shardsGot * 100}`, 395, FONT_BODY, PALETTE.hud);
-    drawCentred(`Route bonus  +${state.clearBonus}`, 432, FONT_BODY, PALETTE.hud);
-    drawCentred(`SCORE  ${state.score}`, 480, FONT_HUD, '#ffffff');
-    const blink = 0.55 + 0.45 * Math.sin(state.time * 3);
-    ctx.globalAlpha = blink;
-    drawCentred(state.levelIndex + 1 < 8 ? 'PRESS N OR CLICK FOR THE NEXT ROUTE' : 'PRESS ENTER FOR THE FINAL TALLY', 535, FONT_HUD, PALETTE.shard);
-    ctx.globalAlpha = 1;
-  }
-
-  function drawOver(state) {
-    drawPanel(FIELD.width / 2 - 340, 200, 680, 340);
-    drawCentred('OUT OF COMETS', 270, FONT_HEADING, PALETTE.danger);
-    drawCentred('The courier is stranded — the shards stay where they fell.', 335, FONT_BODY, PALETTE.hud);
-    drawCentred(`You reached route ${state.levelIndex + 1} of 8`, 380, FONT_BODY, PALETTE.hud);
-    drawCentred(`SCORE  ${state.score}   ·   BEST  ${state.best}`, 435, FONT_HUD, '#ffffff');
-    const blink = 0.55 + 0.45 * Math.sin(state.time * 3);
-    ctx.globalAlpha = blink;
-    drawCentred('PRESS R OR CLICK TO TRY AGAIN', 505, FONT_HUD, PALETTE.shard);
-    ctx.globalAlpha = 1;
-  }
-
-  function drawVictory(state) {
-    drawPanel(FIELD.width / 2 - 360, 170, 720, 420);
-    drawCentred('ALL DELIVERIES MADE!', 240, FONT_HEADING, PALETTE.shard);
-    drawCentred('Eight routes, eight gates — the courier never missed a sunset.', 305, FONT_BODY, PALETTE.hud);
-    drawCentred(`FINAL SCORE  ${state.score}`, 375, FONT_HUD, '#ffffff');
-    drawCentred(`BEST  ${state.best}`, 420, FONT_BODY, PALETTE.hudDim);
-    const blink = 0.55 + 0.45 * Math.sin(state.time * 3);
-    ctx.globalAlpha = blink;
-    drawCentred('PRESS R OR CLICK TO FLY AGAIN', 520, FONT_HUD, PALETTE.shard);
-    ctx.globalAlpha = 1;
-  }
-
-  function drawPaused() {
-    ctx.fillStyle = 'rgba(4, 6, 18, 0.6)';
-    ctx.fillRect(0, 0, FIELD.width, FIELD.height);
-    drawPanel(FIELD.width / 2 - 260, 300, 520, 170);
-    drawCentred('PAUSED', 355, FONT_HEADING, '#ffffff');
-    drawCentred('Press P or click to keep flying', 415, FONT_BODY, PALETTE.hud);
-  }
-
-  /** Paint one frame of `state`. The world is always drawn behind the menus. */
-  function draw(state) {
-    ctx.clearRect(0, 0, FIELD.width, FIELD.height);
-    drawBackground(state.time);
-    const level = state.level;
-    for (const planet of level.planets) drawPlanet(planet, state.levelTime);
-    for (const voidBody of level.voids) drawVoid(voidBody, state.levelTime);
-    drawGate(level.gate, state.time);
-    for (const shard of level.shards) drawShard(shard, state.time);
-    if (state.screen === SCREEN_TITLE || (state.screen === SCREEN_PLAY && state.flight === null)) {
-      drawPad(level.pad, state.time);
-    }
-    if (state.flight !== null) drawComet(state.flight, state.trail);
-    if (state.screen === SCREEN_PLAY) drawAim(state.aim);
-    if (state.screen !== SCREEN_TITLE) drawHud(state);
-    if (state.screen === SCREEN_TITLE) drawTitle(state);
-    if (state.screen === SCREEN_CLEAR) drawClear(state);
-    if (state.screen === SCREEN_OVER) drawOver(state);
-    if (state.screen === SCREEN_VICTORY) drawVictory(state);
-    if (state.screen === SCREEN_PAUSED) drawPaused();
-    if (state.muted) {
-      ctx.fillStyle = PALETTE.hudDim;
-      ctx.font = FONT_BODY;
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('MUTED', FIELD.width - 20, FIELD.height - 24);
-    }
-  }
-
-  return { draw };
+  return {
+    /** Paint the whole field for the current game state. */
+    drawField(game, backdrop, region) {
+      ctx.save();
+      if (game.shake > 0) {
+        ctx.translate((Math.random() - 0.5) * game.shake, (Math.random() - 0.5) * game.shake);
+      }
+      const time = game.time;
+      drawBackdrop(ctx, backdrop, region, time);
+      const level = game.level;
+      for (const wind of level.winds) drawWind(wind, time);
+      for (const hole of level.wormholes) drawWormhole(hole, time);
+      for (const planet of level.planets) drawPlanet(planet, game.levelTime);
+      for (const voidBody of level.voids) drawVoid(voidBody, time);
+      for (const mine of level.mines) drawMine(mine, game.levelTime);
+      drawGate(level.gate, game.levelTime);
+      drawPad(level, time);
+      for (let index = 0; index < level.shards.length; index += 1) {
+        if (!level.shards[index].taken) drawShard(level.shards[index], time);
+      }
+      for (const pickup of level.pickups) {
+        if (!pickup.taken) drawPickup(pickup, time);
+      }
+      // The dotted aim preview, then the flight trail, then the comet itself.
+      if (game.aim.active && game.aim.points.length > 1) {
+        ctx.fillStyle = 'rgba(223, 230, 255, 0.75)';
+        for (let index = 0; index < game.aim.points.length; index += 3) {
+          const point = game.aim.points[index];
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      if (game.trail.length > 1) {
+        ctx.strokeStyle = PALETTE.trail;
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(game.trail[0].x, game.trail[0].y);
+        for (let index = 1; index < game.trail.length; index += 1) ctx.lineTo(game.trail[index].x, game.trail[index].y);
+        ctx.stroke();
+      }
+      game.particles.draw(ctx);
+      if (game.flight !== null) {
+        drawComet(game.flight.x, game.flight.y, game.flight.shield, time);
+      } else if (game.screen === SCREEN_PLAY || game.screen === SCREEN_PAUSED) {
+        drawComet(level.pad.x, level.pad.y, game.shieldArmed, time);
+      }
+      ctx.restore();
+    },
+    /** Paint the backdrop alone, for the title and map screens. */
+    drawSky(backdrop, region, time) {
+      drawBackdrop(ctx, backdrop, region, time);
+    },
+    context() {
+      return ctx;
+    },
+  };
 }
